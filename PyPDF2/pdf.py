@@ -2289,8 +2289,7 @@ class PageObject(DictionaryObject):
 
             self.mediaBox.setLowerLeft(lowerleft)
             self.mediaBox.setUpperRight(upperright)
-
-        self[NameObject('/Contents')] = ContentStream(newContentArray, self.pdf)
+        self[NameObject('/Contents')] = newContentArray
         self[NameObject('/Resources')] = newResources
         self[NameObject('/Annots')] = newAnnots
 
@@ -2556,8 +2555,7 @@ class PageObject(DictionaryObject):
         """
         content = self.getContents()
         if content is not None:
-            if not isinstance(content, ContentStream):
-                content = ContentStream(content, self.pdf)
+            content = ContentStream(content, self.pdf)
             self[NameObject("/Contents")] = content.flateEncode()
 
     def extractText(self):
@@ -2573,8 +2571,7 @@ class PageObject(DictionaryObject):
         """
         text = u_("")
         content = self["/Contents"].getObject()
-        if not isinstance(content, ContentStream):
-            content = ContentStream(content, self.pdf)
+        content = ContentStream(content, self.pdf)
         # Note: we check all strings are TextStringObjects.  ByteStringObjects
         # are strings where the byte->string encoding was unknown, so adding
         # them to the text here would be gibberish.
@@ -2642,18 +2639,23 @@ class PageObject(DictionaryObject):
 class ContentStream(DecodedStreamObject):
     def __init__(self, stream, pdf):
         self.pdf = pdf
-        self.operations = []
-        # stream may be a StreamObject or an ArrayObject containing
-        # multiple StreamObjects to be cat'd together.
-        stream = stream.getObject()
-        if isinstance(stream, ArrayObject):
-            data = b_("")
-            for s in stream:
-                data += s.getObject().getData()
-            stream = BytesIO(b_(data))
+
+        if isinstance(stream, ContentStream):
+            # don't stringify and re-parse the whole thing, just copy objects
+            self.operations = stream.operations[:]
         else:
-            stream = BytesIO(b_(stream.getData()))
-        self.__parseContentStream(stream)
+            self.operations = []
+            # stream may be a StreamObject or an ArrayObject containing
+            # multiple StreamObjects to be cat'd together.
+            stream = stream.getObject()
+            if isinstance(stream, ArrayObject):
+                items = []
+                for s in stream:
+                    items.append(s.getObject().getData())
+                stream = BytesIO(b_('').join(items))
+            else:
+                stream = BytesIO(b_(stream.getData()))
+            self.__parseContentStream(stream)
 
     def __parseContentStream(self, stream):
         # file("f:\\tmp.txt", "w").write(stream.read())

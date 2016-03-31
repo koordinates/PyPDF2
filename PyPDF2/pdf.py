@@ -2255,8 +2255,11 @@ class PageObject(DictionaryObject):
 
         originalContent = self.getContents()
         if originalContent is not None:
-            newContentArray.append(PageObject._pushPopGS(
-                  originalContent, self.pdf))
+            # KX: Removed because it re-parses the content stream, and that's
+            # ridiculously slow, memory-intensive, and unnecessary for our use-cases.
+            # newContentArray.append(PageObject._pushPopGS(
+            #       originalContent, self.pdf))
+            newContentArray.extend(originalContent)
 
         page2Content = page2.getContents()
         if page2Content is not None:
@@ -2264,8 +2267,10 @@ class PageObject(DictionaryObject):
                 page2Content = page2transformation(page2Content)
             page2Content = PageObject._contentStreamRename(
                 page2Content, rename, self.pdf)
-            page2Content = PageObject._pushPopGS(page2Content, self.pdf)
-            newContentArray.append(page2Content)
+            # KX: Removed because it re-parses the content stream, and that's
+            # ridiculously slow, memory-intensive, and unnecessary for our use-cases.
+            # page2Content = PageObject._pushPopGS(page2Content, self.pdf)
+            newContentArray.extend(page2Content)
 
         # if expanding the page to fit a new page, calculate the new media box size
         if expand:

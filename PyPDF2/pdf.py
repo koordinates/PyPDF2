@@ -2197,9 +2197,16 @@ class PageObject(DictionaryObject):
         # adds a graphics state "push" and "pop" to the beginning and end
         # of a content stream.  This isolates it from changes such as
         # transformation matricies.
-        stream = ContentStream(contents, pdf)
-        stream.operations.insert(0, [[], "q"])
-        stream.operations.append([[], "Q"])
+        if not isinstance(contents, ArrayObject):
+            contents = [contents]
+        data = BytesIO()
+        data.write(b"q\n")
+        for item in contents:
+            data.write(item.getData())
+            data.write(b"\n")
+        data.write(b"Q\n")
+        stream  = DecodedStreamObject()
+        stream.setData(data.getvalue())
         return stream
     _pushPopGS = staticmethod(_pushPopGS)
 

@@ -2165,18 +2165,19 @@ class PageObject(DictionaryObject):
         currentAngle = self.get("/Rotate", 0)
         self[NameObject("/Rotate")] = NumberObject(currentAngle + angle)
 
-    def _mergeResources(res1, res2, resource):
+    def _mergeResources(resource, res1, *other_resources):
         newRes = DictionaryObject()
         newRes.update(res1.get(resource, DictionaryObject()).getObject())
-        page2Res = res2.get(resource, DictionaryObject()).getObject()
         renameRes = {}
-        for key in list(page2Res.keys()):
-            if key in newRes and newRes.raw_get(key) != page2Res.raw_get(key):
-                newname = NameObject(key + str(uuid.uuid4()))
-                renameRes[key] = newname
-                newRes[newname] = page2Res[key]
-            elif key not in newRes:
-                newRes[key] = page2Res.raw_get(key)
+        for res2 in other_resources:
+            page2Res = res2.get(resource, DictionaryObject()).getObject()
+            for key in list(page2Res.keys()):
+                if key in newRes and newRes.raw_get(key) != page2Res.raw_get(key):
+                    newname = NameObject(key + str(uuid.uuid4()))
+                    renameRes[key] = newname
+                    newRes[newname] = page2Res[key]
+                elif key not in newRes:
+                    newRes[key] = page2Res.raw_get(key)
         return newRes, renameRes
     _mergeResources = staticmethod(_mergeResources)
 
@@ -2257,7 +2258,7 @@ class PageObject(DictionaryObject):
                         newAnnots.append(ref)
 
         for res in "/ExtGState", "/Font", "/XObject", "/ColorSpace", "/Pattern", "/Shading", "/Properties":
-            new, newrename = PageObject._mergeResources(originalResources, page2Resources, res)
+            new, newrename = PageObject._mergeResources(res, originalResources, page2Resources)
             if new:
                 newResources[NameObject(res)] = new
                 rename.update(newrename)
@@ -2311,6 +2312,63 @@ class PageObject(DictionaryObject):
         self[NameObject('/Contents')] = ContentStream(newContentArray, self.pdf)
         self[NameObject('/Resources')] = newResources
         self[NameObject('/Annots')] = newAnnots
+
+    def mergePages(self, other_pages):
+        """
+        A more efficient way of merging multiple pages into this page.
+        Much faster than calling self.mergePage() repeatedly.
+        """
+        # First we work on merging the resource dictionaries.  This allows us
+        # to find out what symbols in the content streams we might need to
+        # rename.
+
+        newResources = DictionaryObject()
+        rename = {}
+        originalResources = self["/Resources"].getObject()
+        newAnnots = ArrayObject()
+
+        for page in [self] + list(other_pages):
+            if "/Annots" in page:
+                annots = page["/Annots"]
+                if isinstance(annots, ArrayObject):
+                    for ref in annots:
+                        newAnnots.append(ref)
+
+        for res in "/ExtGState", "/Font", "/XObject", "/ColorSpace", "/Pattern", "/Shading", "/Properties":
+            pageResources = [page["/Resources"].getObject() for page in other_pages]
+            new, newrename = PageObject._mergeResources(res, originalResources, *pageResources)
+            if new:
+                newResources[NameObject(res)] = new
+                rename.update(newrename)
+
+        # Combine /ProcSet sets.
+        procset = set(originalResources.get("/ProcSet", ArrayObject()).getObject())
+        for page in other_pages:
+            procset.update(page["/Resources"].get("/ProcSet", ArrayObject()).getObject())
+        newResources[NameObject("/ProcSet")] = ArrayObject(frozenset(procset))
+
+        newContentArray = ArrayObject()
+
+        if "/Contents" in self:
+            originalContent = self["/Contents"]
+            if originalContent:
+                newContentArray.append(originalContent)
+
+        for page in other_pages:
+            pageContent = page.getContents()
+            if pageContent is not None:
+                if rename:
+                    pageContent = PageObject._contentStreamRename(
+                        pageContent, rename, self.pdf)
+                pageContent = PageObject._pushPopGS(pageContent, self.pdf)
+                newContentArray.append(pageContent)
+
+        d = DecodedStreamObject()
+        d.setData(b''.join(x.getData() for x in newContentArray))
+        self[NameObject('/Contents')] = d
+        self[NameObject('/Resources')] = newResources
+        self[NameObject('/Annots')] = newAnnots
+
 
     def mergeTransformedPage(self, page2, ctm, expand=False):
         """
